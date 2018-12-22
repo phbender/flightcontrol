@@ -36,7 +36,7 @@ There are some assumptions to make the problem more interesting:
 
 * The trajectory starts and ends in a zero dynamics state: velocity and acceleration are zero.
 * The aircraft has to avoid certain areas. In the plot below the navigation area is outlined with a black, dashed line.
-* The starting and landing should happen with no lateral velocity, only moving up and down is allowed for the first and last section of the trajectory.
+* The aircraft should fly at a desired height.
 
 Simplifying assumptions:
 
