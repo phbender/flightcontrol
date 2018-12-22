@@ -3,8 +3,8 @@ import json
 from matplotlib import pyplot as plt
 
 fig = plt.figure()
-ax_conv = fig.add_subplot(4,1,1)
-ax_vel = fig.add_subplot(4,1,2)
+ax_conv = fig.add_subplot(4, 1, 1)
+ax_vel = fig.add_subplot(4, 1, 2)
 ax_acc = fig.add_subplot(4, 1, 3)
 
 
@@ -20,7 +20,7 @@ with open('result.json') as fh:
         solution = result[thing]
         x, y = np.array(solution).reshape(-1, 2).T
         ax_conv.plot(x, y, 'o-', label=thing)
-       
+
         # now "solution" points to the last one (the actual solution)
         vel = np.diff(np.array(solution).reshape(-1, 2), axis=0)
         acc = np.diff(vel, axis=0)
@@ -28,11 +28,11 @@ with open('result.json') as fh:
         ax_acc.plot(acc_x, label="acc x %s" % thing)
         ax_acc.plot(acc_y, label="acc y %s" % thing)
         vx, vy = vel.T
-        ax_vel.plot(vy, label="vel x %s" % thing)
-        ax_vel.plot(vx, label="vel y %s" % thing)
+        ax_vel.plot(vx, label="vel x %s" % thing)
+        ax_vel.plot(vy, label="vel y %s" % thing)
 
 for ax in (ax_acc, ax_conv, ax_vel):
     ax.legend()
-    
-    
+
+
 plt.show()

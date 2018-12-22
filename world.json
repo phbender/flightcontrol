@@ -1,8 +1,10 @@
 {
+    "N": 200,
+    "elevationDes": 7,
     "weights": {
-        "vel": 10,
-        "acc": 20,
-        "jerk": 100,
+        "vel": 1,
+        "acc": 1000,
+        "jerk": 10000,
         "bound": 100000
     },
     "rawInit": [

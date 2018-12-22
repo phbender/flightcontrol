@@ -31,6 +31,11 @@ std::ostream &operator<<(std::ostream &out, const sample_t &sample)
 
 std::vector<sample_t> resample(const std::vector<sample_t> &points, const size_t &N)
 {
+    // this function takes a polyline (a set of points) and returns a new set of points of length N
+    // which is sampled equally spaced along the original line.
+
+    // for each point, the offset is calculated. This is the accumulation of the distance
+    // between two consecutive points.
     std::vector<double> offsets(points.size());
     offsets[0] = 0;
     for (size_t i = 0; i < points.size() - 1; ++i)
@@ -38,8 +43,8 @@ std::vector<sample_t> resample(const std::vector<sample_t> &points, const size_t
         offsets[i + 1] = offsets[i] + std::hypot(points[i + 1].x - points[i].x, points[i + 1].y - points[i].y);
     }
 
-    std::cout << "offsets" << offsets << std::endl;
-
+    // the first element is 0, the last element is the length of the complete polyline.
+    // this is used to calculate the increment needed for each point.
     const double &length = offsets.back();
     const double increment = length / (N - 1);
 
@@ -47,6 +52,9 @@ std::vector<sample_t> resample(const std::vector<sample_t> &points, const size_t
 
     for (size_t i = 0; i < N; ++i)
     {
+        // we can now search for the first offset which is larger than the desired arc length. The index of
+        // this offset can be used to directly find the points between we need to interpolate to get the
+        // desired point.
         double arclen = i * increment;
         const auto it = std::lower_bound(offsets.cbegin(), offsets.cend(), arclen);
         const size_t index = std::distance(offsets.cbegin(), it);
@@ -60,9 +68,11 @@ std::vector<sample_t> resample(const std::vector<sample_t> &points, const size_t
     return result;
 }
 
-Json::Value samples_to_json(const std::vector<sample_t>& samples) {
+Json::Value samples_to_json(const std::vector<sample_t> &samples)
+{
     Json::Value result;
-    for(const sample_t& sample: samples) {
+    for (const sample_t &sample : samples)
+    {
         Json::Value s;
         s.append(sample.x);
         s.append(sample.y);
@@ -71,13 +81,14 @@ Json::Value samples_to_json(const std::vector<sample_t>& samples) {
     return result;
 }
 
-std::vector<sample_t> json_to_samples(const Json::Value& json_samples) {
+std::vector<sample_t> json_to_samples(const Json::Value &json_samples)
+{
     std::vector<sample_t> result(json_samples.size());
-    for(Json::ArrayIndex i = 0; i < json_samples.size(); ++i) {
+    for (Json::ArrayIndex i = 0; i < json_samples.size(); ++i)
+    {
         result[i] = sample_t{
             json_samples[i][0].asDouble(),
-            json_samples[i][1].asDouble()
-        };
+            json_samples[i][1].asDouble()};
     }
 
     return result;
@@ -85,9 +96,17 @@ std::vector<sample_t> json_to_samples(const Json::Value& json_samples) {
 
 std::vector<sample_t> initialize(const std::vector<sample_t> raw_init, const size_t N_SAMPLES)
 {
+    // We depend on a raw initialization. This function takes such a raw initialization and returns an
+    // initialization tailoered to the problem size such that the first three points are located on the start
+    // coordinate, the last three points are on the destination coordinate (both coordinates are determined by
+    // the raw initialization) and the other points are equally spaced between.
+    // We set the start and destination points to the same value to determine the initial and final dynamics
+    // (no velocity, no acceleration).
     const std::vector<sample_t> resampled = resample(raw_init, N_SAMPLES - 4);
     std::vector<sample_t> initialization(N_SAMPLES);
     std::copy(resampled.cbegin(), resampled.cend(), initialization.begin() + 2);
+
+    // set first and last three points to the same value
     initialization[0] = initialization[1] = initialization[2];
     initialization[N_SAMPLES - 2] = initialization[N_SAMPLES - 1] = initialization[N_SAMPLES - 3];
     return initialization;
@@ -97,22 +116,13 @@ int main()
 {
     Json::Value world;
     std::ifstream("world.json") >> world;
-    
-    polygon_t poly;
-
-    for(const sample_t& point: json_to_samples(world["bounds"])) {
-        boost::geometry::append(poly.outer(), point_t{
-            point.x,
-            point.y
-        });
-    }
 
     std::vector<sample_t> raw_init = json_to_samples(world["rawInit"]);
 
-    const size_t N_SAMPLES = 200;
-    const double w_vel(world["weights"]["vel"].asDouble()), 
-        w_acc(world["weights"]["acc"].asDouble()), 
-        w_jerk(world["weights"]["jerk"].asDouble()), 
+    const size_t N_SAMPLES =world["N"].asUInt64();
+    const double w_vel(world["weights"]["vel"].asDouble()),
+        w_acc(world["weights"]["acc"].asDouble()),
+        w_jerk(world["weights"]["jerk"].asDouble()),
         w_bound(world["weights"]["bound"].asDouble());
 
     std::vector<sample_t> pts = initialize(raw_init, N_SAMPLES);
@@ -125,6 +135,16 @@ int main()
     ceres::Problem ceres_problem;
     ceres::CostFunction *cost_function;
 
+    // only used to parameterize the PolygonCostFunctor
+    polygon_t poly;
+
+    for (const sample_t &point : json_to_samples(world["bounds"]))
+    {
+        boost::geometry::append(poly.outer(), point_t{
+                                                  point.x,
+                                                  point.y});
+    }
+
     for (int i = 0; i < N_SAMPLES; ++i)
     {
         double *p0 = (double *)&(pts[i]);
@@ -133,6 +153,11 @@ int main()
             new ceres::NumericDiffCostFunction<PolygonCostFunctor<point_t, polygon_t>, ceres::FORWARD, 1, 2>(
                 new PolygonCostFunctor<point_t, polygon_t>(poly));
         ceres_problem.AddResidualBlock(cost_function, new ceres::ScaledLoss(NULL, w_bound, ceres::TAKE_OWNERSHIP), p0);
+
+        cost_function =
+            new ceres::AutoDiffCostFunction<ElevationCostFunctor, 1, 2>(
+                new ElevationCostFunctor(world["elevationDes"].asDouble()));
+        ceres_problem.AddResidualBlock(cost_function, new ceres::ScaledLoss(NULL, w_vel, ceres::TAKE_OWNERSHIP), p0);
     }
 
     for (int i = 0; i < N_SAMPLES - 2; ++i)
@@ -165,14 +190,6 @@ int main()
     for (const auto &block : constant_blocks)
     {
         ceres_problem.SetParameterBlockConstant((double *)&(pts[block]));
-    }
-
-    ceres::SubsetParameterization *pin_x = new ceres::SubsetParameterization(2, {{0}});
-
-    for (size_t i = 0; i < 20; ++i)
-    {
-        ceres_problem.SetParameterization((double *)&(pts[i]), pin_x);
-        ceres_problem.SetParameterization((double *)&(pts[N_SAMPLES - i - 1]), pin_x);
     }
 
     ceres::Solver::Options options;
